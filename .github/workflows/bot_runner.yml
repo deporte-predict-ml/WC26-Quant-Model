@@ -340,11 +340,11 @@ jobs:
     
     steps:
       - name: 🗑️ Eliminar artefactos antiguos (> 7 días)
-        uses: actions/delete-artifact@v4
+        uses: geekyeggo/delete-artifact@v5
         continue-on-error: true
         with:
           name: historical-data-old
-          fail-on-not-found: false
+          failOnError: false
       
       - name: 📝 Log de limpieza
         run: echo "✅ Limpieza de artefactos completada"
