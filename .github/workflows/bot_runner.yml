@@ -1,16 +1,12 @@
-# .github/workflows/bot_runner.yml
-name: 🏆 WC2026 Quant Model Runner
+name: '🏆 WC2026 Quant Model Runner'
 
 on:
-  # Ejecución programada (Cron)
   schedule:
-    - cron: '0 0 * * *'  # Todos los días a las 00:00 UTC
-  
-  # Ejecución manual desde la UI de GitHub
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Entorno de ejecución'
+        description: 'Environment to run in'
         required: true
         default: 'production'
         type: choice
@@ -18,333 +14,91 @@ on:
           - production
           - staging
       run_tests:
-        description: 'Ejecutar tests unitarios'
+        description: 'Run tests before executing pipeline'
         required: false
         default: true
         type: boolean
       force_refresh:
-        description: 'Forzar actualización completa de datos'
+        description: 'Force refresh all data'
         required: false
         default: false
         type: boolean
-  
-  # Ejecución en push a main
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - 'scripts/**'
       - 'config/**'
-      - 'requirements.txt'
-  
-  # Ejecución en pull requests
+      - 'main.py'
+      - '.github/workflows/bot_runner.yml'
   pull_request:
-    branches:
-      - main
-    paths:
-      - 'scripts/**'
-      - 'config/**'
-      - 'tests/**'
-      - 'requirements.txt'
-
-# Configuración de permisos
-permissions:
-  contents: read
-  actions: write
-  checks: write
-
-# Variables de entorno globales
-env:
-  PYTHON_VERSION: '3.11'
-  PIP_CACHE_DIR: ~/.cache/pip
-  LOG_LEVEL: INFO
+    branches: [main]
 
 jobs:
-  # ─────────────────────────────────────────────────────────────
-  # JOB 1: Validación y Tests
-  # ─────────────────────────────────────────────────────────────
   test:
-    name: 🧪 Tests & Validación
+    name: 'Run Tests'
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'schedule' || github.event.inputs.run_tests == 'true' }}
     
     steps:
-      - name: 📥 Checkout del repositorio
+      - name: 'Checkout code'
         uses: actions/checkout@v4
       
-      - name: 🐍 Configurar Python
-        uses: actions/setup-python@v5
+      - name: 'Set up Python'
+        uses: actions/setup-python@v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: '3.11'
           cache: 'pip'
       
-      - name: 📦 Instalar dependencias
+      - name: 'Install dependencies'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov
       
-      - name: 🔍 Validar estructura de archivos
-        run: |
-          echo "Validando estructura del repositorio..."
-          test -d config || (echo "❌ Falta directorio config" && exit 1)
-          test -d scripts || (echo "❌ Falta directorio scripts" && exit 1)
-          test -d tests || (echo "❌ Falta directorio tests" && exit 1)
-          test -f config/settings.py || (echo "❌ Falta config/settings.py" && exit 1)
-          test -f scripts/poisson_core.py || (echo "❌ Falta scripts/poisson_core.py" && exit 1)
-          test -f scripts/data_fetch.py || (echo "❌ Falta scripts/data_fetch.py" && exit 1)
-          echo "✅ Estructura validada correctamente"
-      
-      - name: 🧪 Ejecutar tests unitarios
-        if: github.event.inputs.run_tests == 'true' || github.event_name != 'workflow_dispatch'
-        run: |
-          pytest tests/ -v --cov=scripts --cov-report=xml --cov-report=html \
-            --junitxml=pytest-results.xml \
-            || echo "⚠️ Tests fallaron pero continuamos (modo producción)"
-      
-      - name: 📊 Publicar resultados de tests
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: |
-            pytest-results.xml
-            htmlcov/
-          retention-days: 7
-      
-      - name: 🔒 Validar variables de entorno
-        run: |
-          if [ -z "${{ secrets.API_SPORTS_KEY }}" ]; then
-            echo "⚠️ API_SPORTS_KEY no configurada (solo para tests)"
-          else
-            echo "✅ API_KEY configurada correctamente"
-          fi
+      - name: 'Run pytest'
+        run: pytest tests/ -v --tb=short
 
-  # ─────────────────────────────────────────────────────────────
-  # JOB 2: Extracción de Datos
-  # ─────────────────────────────────────────────────────────────
-  fetch-data:
-    name: 📥 Extracción de Datos
+  run:
+    name: 'Run Quantitative Model'
     runs-on: ubuntu-latest
     needs: test
-    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
-    
-    outputs:
-      data_status: ${{ steps.fetch.outputs.status }}
-      matches_count: ${{ steps.fetch.outputs.matches_count }}
+    if: always()
     
     steps:
-      - name: 📥 Checkout del repositorio
+      - name: 'Checkout code'
         uses: actions/checkout@v4
       
-      - name: 🐍 Configurar Python
-        uses: actions/setup-python@v5
+      - name: 'Set up Python'
+        uses: actions/setup-python@v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: '3.11'
           cache: 'pip'
       
-      - name: 📦 Instalar dependencias
+      - name: 'Install dependencies'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: 📂 Crear directorios necesarios
-        run: |
-          mkdir -p data logs
+      - name: 'Create logs directory'
+        run: mkdir -p logs data
       
-      - name: 🔄 Ejecutar DataFetcher
-        id: fetch
+      - name: 'Run QuantBet WC26 Pipeline'
         env:
           API_SPORTS_KEY: ${{ secrets.API_SPORTS_KEY }}
-          LOG_LEVEL: ${{ env.LOG_LEVEL }}
-          FORCE_REFRESH: ${{ github.event.inputs.force_refresh || 'false' }}
-        run: |
-          python scripts/data_fetch.py 2>&1 | tee logs/data_fetch_${{ github.run_id }}.log
-          
-          # Verificar si se extrajeron datos
-          if [ -f data/historico_selecciones.json ]; then
-            MATCHES_COUNT=$(python -c "import json; print(len(json.load(open('data/historico_selecciones.json')).get('response', [])))")
-            echo "status=success" >> $GITHUB_OUTPUT
-            echo "matches_count=$MATCHES_COUNT" >> $GITHUB_OUTPUT
-            echo "✅ Datos extraídos: $MATCHES_COUNT partidos"
-          else
-            echo "status=failed" >> $GITHUB_OUTPUT
-            echo "matches_count=0" >> $GITHUB_OUTPUT
-            echo "❌ No se extrajeron datos válidos"
-          fi
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
+        run: python main.py
       
-      - name: 💾 Guardar datos como artefacto
-        uses: actions/upload-artifact@v4
-        if: steps.fetch.outputs.status == 'success'
+      - name: 'Upload logs on failure'
+        if: failure()
+        uses: actions/upload-artifact@v3
         with:
-          name: historical-data
-          path: data/historico_selecciones.json
-          retention-days: 30
-      
-      - name: 📄 Guardar logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: fetch-logs
-          path: logs/data_fetch_${{ github.run_id }}.log
+          name: pipeline-logs
+          path: logs/
           retention-days: 7
-
-  # ─────────────────────────────────────────────────────────────
-  # JOB 3: Ejecución del Modelo Poisson
-  # ─────────────────────────────────────────────────────────────
-  run-model:
-    name: 🔮 Ejecución del Modelo
-    runs-on: ubuntu-latest
-    needs: fetch-data
-    if: needs.fetch-data.outputs.data_status == 'success'
-    
-    outputs:
-      predictions_count: ${{ steps.model.outputs.predictions_count }}
-      value_bets_count: ${{ steps.model.outputs.value_bets_count }}
-    
-    steps:
-      - name: 📥 Checkout del repositorio
-        uses: actions/checkout@v4
       
-      - name: 🐍 Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-      
-      - name: 📦 Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
-      - name: 📂 Crear directorios necesarios
-        run: |
-          mkdir -p data logs predictions
-      
-      - name: 📥 Descargar datos históricos
-        uses: actions/download-artifact@v4
-        with:
-          name: historical-data
-          path: data/
-      
-      - name: 🧮 Ejecutar Modelo Poisson
-        id: model
-        env:
-          LOG_LEVEL: ${{ env.LOG_LEVEL }}
-        run: |
-          python scripts/poisson_core.py 2>&1 | tee logs/poisson_model_${{ github.run_id }}.log
-          
-          # Verificar si se generaron predicciones
-          if [ -f data/predicciones.json ]; then
-            PREDICTIONS_COUNT=$(python -c "import json; print(json.load(open('data/predicciones.json')).get('total_predictions', 0))")
-            VALUE_BETS_COUNT=$(python -c "import json; print(json.load(open('data/predicciones.json')).get('value_bets', 0))")
-            echo "predictions_count=$PREDICTIONS_COUNT" >> $GITHUB_OUTPUT
-            echo "value_bets_count=$VALUE_BETS_COUNT" >> $GITHUB_OUTPUT
-            echo "✅ Predicciones generadas: $PREDICTIONS_COUNT (Value Bets: $VALUE_BETS_COUNT)"
-          else
-            echo "predictions_count=0" >> $GITHUB_OUTPUT
-            echo "value_bets_count=0" >> $GITHUB_OUTPUT
-            echo "❌ No se generaron predicciones"
-          fi
-      
-      - name: 💾 Guardar predicciones como artefacto
-        uses: actions/upload-artifact@v4
-        if: steps.model.outputs.predictions_count > 0
+      - name: 'Upload predictions output'
+        if: success()
+        uses: actions/upload-artifact@v3
         with:
           name: predictions-output
           path: data/predicciones.json
           retention-days: 30
-      
-      - name: 📄 Guardar logs del modelo
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: model-logs
-          path: logs/poisson_model_${{ github.run_id }}.log
-          retention-days: 7
-
-  # ─────────────────────────────────────────────────────────────
-  # JOB 4: Pipeline Completo (Orquestador)
-  # ─────────────────────────────────────────────────────────────
-  full-pipeline:
-    name: 🚀 Pipeline Completo
-    runs-on: ubuntu-latest
-    needs: [test, fetch-data, run-model]
-    if: always() && !contains(needs.*.result, 'failure')
-    
-    steps:
-      - name: 📥 Checkout del repositorio
-        uses: actions/checkout@v4
-      
-      - name: 🐍 Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-      
-      - name: 📦 Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
-      - name: 📂 Crear directorios necesarios
-        run: |
-          mkdir -p data logs predictions
-      
-      - name: 🔄 Ejecutar Pipeline Completo
-        id: pipeline
-        env:
-          API_SPORTS_KEY: ${{ secrets.API_SPORTS_KEY }}
-          LOG_LEVEL: ${{ env.LOG_LEVEL }}
-        run: |
-          python main.py 2>&1 | tee logs/pipeline_${{ github.run_id }}.log
-          
-          echo "PIPELINE_STATUS=completed" >> $GITHUB_OUTPUT
-      
-      - name: 📊 Resumen de Ejecución
-        run: |
-          echo "=========================================="
-          echo "📋 RESUMEN DE EJECUCIÓN"
-          echo "=========================================="
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Trigger: ${{ github.event_name }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Fecha: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-          echo ""
-          echo "Tests: ${{ needs.test.result }}"
-          echo "Data Fetch: ${{ needs.fetch-data.outputs.data_status }} (${{ needs.fetch-data.outputs.matches_count }} partidos)"
-          echo "Model: ${{ needs.run-model.outputs.predictions_count }} predicciones (${{ needs.run-model.outputs.value_bets_count }} value bets)"
-          echo "=========================================="
-      
-      - name: 💾 Guardar todos los logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: complete-logs-${{ github.run_id }}
-          path: logs/
-          retention-days: 14
-      
-      - name: 🔔 Notificación (Opcional)
-        if: always()
-        run: |
-          echo "📧 Notificación lista para implementar (Discord/Telegram/Email)"
-          # Aquí puedes agregar webhooks para notificaciones
-
-  # ─────────────────────────────────────────────────────────────
-  # JOB 5: Limpieza de Artefactos Antiguos
-  # ─────────────────────────────────────────────────────────────
-  cleanup:
-    name: 🧹 Limpieza de Artefactos
-    runs-on: ubuntu-latest
-    needs: [full-pipeline]
-    if: always()
-    
-    steps:
-      - name: 🗑️ Eliminar artefactos antiguos (> 7 días)
-        uses: geekyeggo/delete-artifact@v5
-        continue-on-error: true
-        with:
-          name: historical-data-old
-          failOnError: false
-      
-      - name: 📝 Log de limpieza
-        run: echo "✅ Limpieza de artefactos completada"
