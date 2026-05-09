@@ -1,0 +1,36 @@
+# Entornos virtuales
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Directorios generados
+logs/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Datos y configuración
+data/*.json
+data/*.csv
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Variables de entorno
+.env
+.env.local
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
