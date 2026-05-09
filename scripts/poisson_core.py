@@ -29,6 +29,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# --- ARREGLO: Codificador personalizado para tipos de NumPy ---
+class NumpyEncoder(json.JSONEncoder):
+    """Codificador para convertir tipos de NumPy a tipos nativos de Python para JSON"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NumpyEncoder, self).default(obj)
+# --------------------------------------------------------------
+
+
 @dataclass
 class TeamStats:
     """Estructura para estadísticas de equipo"""
@@ -322,7 +338,8 @@ class PoissonModel:
         }
         
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(output, f, indent=2, ensure_ascii=False)
+            # ARREGLO: Se añade cls=NumpyEncoder aquí
+            json.dump(output, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
         
         logger.info(f"💾 Predicciones exportadas a {filepath}")
         return filepath
