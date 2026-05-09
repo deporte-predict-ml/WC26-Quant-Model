@@ -87,9 +87,11 @@ jobs:
           LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
         run: python main.py
       
+      # Lines 90-104 in .github/workflows/bot_runner.yml
+
       - name: 'Upload logs on failure'
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: pipeline-logs
           path: logs/
@@ -97,7 +99,7 @@ jobs:
       
       - name: 'Upload predictions output'
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: predictions-output
           path: data/predicciones.json
