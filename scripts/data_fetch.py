@@ -49,13 +49,6 @@ class DataFetcher:
     def fetch_tournament_data(self, league: str, season: str) -> List[Dict]:
         """
         Extrae datos de un torneo específico con retry logic
-        
-        Args:
-            league: ID de la liga
-            season: Temporada
-            
-        Returns:
-            Lista de partidos
         """
         url = f"{self.base_url}{self.endpoint}"
         params = {"league": league, "season": season}
@@ -67,13 +60,13 @@ class DataFetcher:
             try:
                 logger.info(f"Extrayendo liga {league} temporada {season} (intento {retry_count + 1})")
                 
-                response = self.session.get(url, headers=self.session.headers, params=params, timeout=30)
+                response = self.session.get(url, params=params, timeout=30)
                 response.raise_for_status()
                 
                 data = response.json()
                 
-                if "response" not in data:
-                    logger.warning(f"No hay campo 'response' en liga {league}")
+                if "response" not in data or not data["response"]:
+                    logger.warning(f"No hay datos en 'response' para liga {league} temporada {season}")
                     return []
                 
                 matches = data["response"]
@@ -92,7 +85,7 @@ class DataFetcher:
             except RequestException as e:
                 retry_count += 1
                 logger.error(f"Error en liga {league}: {str(e)}")
-                if response.status_code == 429:
+                if hasattr(e.response, 'status_code') and e.response.status_code == 429:
                     logger.warning("Rate limit excedido. Esperando 60 segundos...")
                     time.sleep(60)
                 else:
@@ -103,28 +96,21 @@ class DataFetcher:
     
     def validate_match(self, match: Dict) -> bool:
         """
-        Valida que un partido tenga datos completos
-        
-        Args:
-            match: Diccionario de partido
-            
-        Returns:
-            True si es válido
+        Valida que un partido tenga datos completos y haya finalizado
         """
-        required_fields = [
-            "fixture", "teams", "goals", "league", "season"
-        ]
-        
-        for field in required_fields:
-            if field not in match:
-                return False
-        
-        # Validar que haya goles (partido jugado)
-        if match["goals"]["home"] is None or match["goals"]["away"] is None:
+        # 1. Verificar existencia de diccionarios base
+        if not all(k in match for k in ["fixture", "teams", "goals"]):
             return False
         
-        # Validar fecha
-        if "date" not in match["fixture"]:
+        # 2. Verificar que el partido esté finalizado
+        # FT: Full Time, AET: After Extra Time, PEN: Penalty
+        status_short = match.get("fixture", {}).get("status", {}).get("short")
+        if status_short not in ["FT", "AET", "PEN"]:
+            return False
+        
+        # 3. Validar que existan los goles
+        goals = match.get("goals", {})
+        if goals.get("home") is None or goals.get("away") is None:
             return False
             
         return True
@@ -132,9 +118,6 @@ class DataFetcher:
     def fetch_all_data(self) -> Dict[str, Any]:
         """
         Extrae todos los torneos configurados
-        
-        Returns:
-            Diccionario con todos los partidos
         """
         self.all_matches = []
         successful_tournaments = 0
@@ -150,7 +133,7 @@ class DataFetcher:
             invalid_count = len(matches) - len(valid_matches)
             
             if invalid_count > 0:
-                logger.warning(f"{invalid_count} partidos inválidos filtrados")
+                logger.warning(f"{invalid_count} partidos inválidos o no finalizados filtrados")
             
             self.all_matches.extend(valid_matches)
             
@@ -169,12 +152,6 @@ class DataFetcher:
     def save_data(self, data: Dict[str, Any]) -> str:
         """
         Guarda datos en archivo JSON
-        
-        Args:
-            data: Datos a guardar
-            
-        Returns:
-            Ruta del archivo guardado
         """
         os.makedirs(Config.DATA_DIR, exist_ok=True)
         filepath = os.path.join(Config.DATA_DIR, Config.HISTORICAL_DATA_FILE)
@@ -203,7 +180,10 @@ def main():
         fetcher.save_data(data)
         logger.info("✅ Proceso completado exitosamente")
     else:
-        logger.error("❌ No se extrajeron datos válidos")
+        # Importante: el log original fallaba aquí porque el total era 0
+        logger.error("❌ No se extrajeron datos válidos tras el filtrado")
+        # Forzar salida con error para GitHub Actions si no hay datos
+        sys.exit(1)
 
 
 if __name__ == "__main__":
