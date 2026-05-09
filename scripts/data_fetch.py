@@ -17,6 +17,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.settings import Config
 
+# Create logs directory if it doesn't exist
+os.makedirs(Config.LOGS_DIR, exist_ok=True)
+
 # Setup logging
 logging.basicConfig(
     level=Config.LOG_LEVEL,
